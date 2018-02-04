@@ -558,17 +558,14 @@ class GoDebugSession extends DebugSession {
 						let f = remoteFile.replace(dir, '');
 						return () => {
 							verbose('Creating on: ' + file + ' (' + f + ') :' + line);
-							return this.delve.callPromise<DebugBreakpoint>('CreateBreakpoint', [{ file: f, line }]).then(null, err => {
-								verbose('Error on CreateBreakpoint: ' + err.toString());
-								return null;
-							});
+							return this.delve.callPromise<DebugBreakpoint>('CreateBreakpoint', [{ file: f, line }]);
 						};
 					}
 				);
 				return attempts.reduce(function(cur, next){
 					return cur.then(x => x, next);
 				}, Promise.reject('')).then(null, () => {
-					verbose('All attempts to set breakpoint failed');
+					verbose('All attempts to set breakpoint for ' + file + ':' + line + ' failed');
 					return null;
 				});
 			}));
