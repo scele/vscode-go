@@ -180,10 +180,21 @@ function normalizePath(filePath: string) {
 	return filePath;
 }
 
+function sortByPathDepth(strings: string[]): string[] {
+	let comp = (a, b) => a.split(path.sep).length - b.split(path.sep).length;
+	return strings.concat().sort(comp);
+}
+
+const bazelSandboxRegex = new RegExp('.*/bazel-sandbox/[^/]+/execroot/[^/]+/');
+function stripBazelSandboxPath(path: string) {
+	return path.replace(bazelSandboxRegex, '');
+}
+
 class Delve {
 	program: string;
 	remotePath: string;
 	sourceDirectories: string[];
+	sources: string[];
 	debugProcess: ChildProcess;
 	connection: Promise<RPCConnection>;
 	onstdout: (str: string) => void;
@@ -475,7 +486,9 @@ class GoDebugSession extends DebugSession {
 			verbose('Delve is closed');
 		};
 
-		this.delve.connection.then(() => {
+		this.delve.callPromise<string[]>('ListSources', []).then((sources) => {
+			this.delve.sources = sortByPathDepth(sources);
+		}).then(() => {
 			if (!this.delve.noDebug) {
 				this.sendEvent(new InitializedEvent());
 				verbose('InitializeEvent');
@@ -514,6 +527,7 @@ class GoDebugSession extends DebugSession {
 	}
 
 	protected toLocalPath(pathToConvert: string): string {
+		pathToConvert = stripBazelSandboxPath(pathToConvert);
 		for (let dir of this.delve.sourceDirectories) {
 			let p = path.join(dir, pathToConvert);
 			if (existsSync(p)) {
@@ -544,6 +558,17 @@ class GoDebugSession extends DebugSession {
 			this.breakpoints.set(file, []);
 		}
 		let remoteFile = this.toDebuggerPath(file);
+		let sourceDirs = this.delve.sourceDirectories.length === 0 ? [''] : this.delve.sourceDirectories;
+		let remoteFiles = sourceDirs.map((dir, i) => {
+			let f = remoteFile.replace(dir, '');
+			for (let i = 0; i < this.delve.sources.length; i++) {
+				if (this.delve.sources[i].endsWith(f)) {
+					return this.delve.sources[i];
+				}
+			}
+			return f;
+		});
+
 		Promise.all(this.breakpoints.get(file).map(existingBP => {
 			verbose('Clearing: ' + existingBP.id);
 			return this.delve.callPromise<DebugBreakpoint>('ClearBreakpoint', [existingBP.id]);
@@ -553,9 +578,7 @@ class GoDebugSession extends DebugSession {
 				// Try each entry from sourceDirectories as a prefix to the filename,
 				// skip through remaining promises when the first one succeeds.
 				// Inspired by https://gist.github.com/greggman/0b6eafb335de4bbb557c
-				let sourceDirs = this.delve.sourceDirectories.length === 0 ? [''] : this.delve.sourceDirectories;
-				let attempts = sourceDirs.map((dir, i) => {
-						let f = remoteFile.replace(dir, '');
+				let attempts = remoteFiles.map((f, i) => {
 						return () => {
 							verbose('Creating on: ' + file + ' (' + f + ') :' + line);
 							return this.delve.callPromise<DebugBreakpoint>('CreateBreakpoint', [{ file: f, line }]);
