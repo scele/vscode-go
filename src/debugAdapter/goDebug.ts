@@ -528,6 +528,7 @@ class GoDebugSession extends DebugSession {
 
 	protected toLocalPath(pathToConvert: string): string {
 		pathToConvert = stripBazelSandboxPath(pathToConvert);
+		pathToConvert = pathToConvert.replace(/^GOROOT\//, '');
 		for (let dir of this.delve.sourceDirectories) {
 			let p = path.join(dir, pathToConvert);
 			if (existsSync(p)) {
